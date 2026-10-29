@@ -1,78 +1,103 @@
-# Godot Engine
+# Override Engine
 
-<p align="center">
-  <a href="https://godotengine.org">
-    <img src="logo_outlined.svg" width="400" alt="Godot Engine logo">
-  </a>
-</p>
+## 2D and 3D cross-platform game engine, built around ECS
 
-## 2D and 3D cross-platform game engine
+**Override Engine is a cross-platform game engine for making 2D and 3D games
+from a unified interface.** It is a fork of [Godot Engine](https://godotengine.org),
+and it keeps Godot's editor, tooling and export pipeline to desktop (Linux,
+macOS, Windows), mobile (Android, iOS) and Web platforms.
 
-**[Godot Engine](https://godotengine.org) is a feature-packed, cross-platform
-game engine to create 2D and 3D games from a unified interface.** It provides a
-comprehensive set of [common tools](https://godotengine.org/features), so that
-users can focus on making games without having to reinvent the wheel. Games can
-be exported with one click to a number of platforms, including the major desktop
-platforms (Linux, macOS, Windows), mobile platforms (Android, iOS), as well as
-Web-based platforms and [consoles](https://docs.godotengine.org/en/latest/tutorials/platform/consoles.html).
+## An ECS workflow instead of a node-based one
 
-## Free, open source and community-driven
+The main difference from Godot is how games are built. Godot organizes a game as
+a tree of nodes, where each node mixes data and behavior and scenes are built by
+nesting nodes. Override Engine uses an **Entity Component System (ECS)**
+workflow instead:
 
-Godot is completely free and open source under the very permissive [MIT license](https://godotengine.org/license).
-No strings attached, no royalties, nothing. The users' games are theirs, down
-to the last line of engine code. Godot's development is fully independent and
-community-driven, empowering users to help shape their engine to match their
-expectations. It is supported by the [Godot Foundation](https://godot.foundation/)
-not-for-profit.
+- **Entities** are plain identifiers with no behavior of their own.
+- **Components** are plain data attached to entities.
+- **Systems** hold the logic, running over every entity that has a given set of
+  components.
 
-Before being open sourced in [February 2014](https://github.com/godotengine/godot/commit/0b806ee0fc9097fa7bda7ac0109191c9c5e0a1ac),
-Godot had been developed by [Juan Linietsky](https://github.com/reduz) and
-[Ariel Manzur](https://github.com/punto-) (both still maintaining the project)
-for several years as an in-house engine, used to publish several work-for-hire
-titles.
+Keeping data apart from logic makes game state easier to reason about, makes
+behavior easy to put together from components rather than deep inheritance, and
+stores data in a cache-friendly layout that scales to large numbers of entities.
 
-![Screenshot of a 3D scene in the Godot Engine editor](https://raw.githubusercontent.com/godotengine/godot-design/master/screenshots/editor_tps_demo_1920x1080.jpg)
+The ECS lives in [`modules/ecs`](modules/ecs/README.md). It replaces the
+node-based workflow rather than sitting on top of it: a project whose main loop
+is an `ECSMainLoop` runs without a single node or a `SceneTree`. It includes:
 
-## Getting the engine
+- **Archetype-based storage**: structure-of-arrays tables with native component
+  layouts, sparse sets for tags, generational entity handles, and change
+  detection based on ticks.
+- **Systems and scheduling**: frame and fixed-tick stages, with systems that
+  don't conflict run in parallel on the worker thread pool.
+- **Events**: lifecycle, stage, networking and custom events that systems can
+  subscribe to.
+- **Built-in components** in place of common nodes: 2D/3D transforms with
+  hierarchy, velocity, sprites, meshes, cameras and physics bodies.
+- **Multiplayer**: entity replication straight over a `MultiplayerPeer`, with
+  delta sync, owner authority and snapshots for players who join late, and no
+  spawner or synchronizer nodes.
+- **Editor tooling**: `ECSPrefab` and `ECSComponentSchema` resources with
+  inspectors, an **ECS Events** panel and an **ECS Profiler**.
+- **Scripting**: `ECSWorld`, `ECSQuery` and `ECSSystem` from GDScript or C++.
 
-### Binary downloads
+Feature parity with the node workflow isn't there yet: audio, animation, UI,
+lights and physics contact events, among others, still need ECS components.
+See the [roadmap](ROADMAP.md) for what's done and what's next.
 
-Official binaries for the Godot editor and the export templates can be found
-[on the Godot website](https://godotengine.org/download).
+### Quick start
 
-### Compiling from source
+Set `application/run/main_loop_type` in your project settings to a script
+class that extends `ECSMainLoop`, then register components, create entities and
+add systems from it. The demo project in [`modules/ecs/demo`](modules/ecs/demo)
+is a complete project with no nodes: 2,000 replicated bouncing sprites over
+ENet.
 
-[See the official docs](https://docs.godotengine.org/en/latest/engine_details/development/compiling)
-for compilation instructions for every supported platform.
+```bash
+bin/<editor binary> --path modules/ecs/demo
+```
 
-## Community and contributing
+Pass `-- --server` or `-- --client` to run it as a multiplayer server or
+client.
 
-Godot is not only an engine but an ever-growing community of users and engine
-developers. The main community channels are listed [on the homepage](https://godotengine.org/community).
+## Free and open source
 
-The best way to get in touch with the core engine developers is to join the
-[Godot Contributors Chat](https://chat.godotengine.org).
+Override Engine is free and open source under the [MIT license](LICENSE.txt),
+like the Godot Engine it is based on. No strings attached, no royalties.
+
+Override Engine is not affiliated with or endorsed by the Godot Engine project
+or the Godot Foundation. All credit for the original engine goes to
+[Juan Linietsky](https://github.com/reduz), [Ariel Manzur](https://github.com/punto-)
+and the [Godot contributors](https://github.com/godotengine/godot/graphs/contributors).
+
+## Compiling from source
+
+Override Engine uses the same build system as Godot. See the
+[Godot compilation docs](https://docs.godotengine.org/en/latest/engine_details/development/compiling)
+for instructions for every supported platform.
+
+To run the ECS unit tests, build with `tests=yes` and run:
+
+```bash
+bin/<editor binary> --test --test-case="[ECS]*"
+```
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
+
+## Contributing
 
 To get started contributing to the project, see the [contributing guide](CONTRIBUTING.md).
-This document also includes guidelines for reporting bugs.
+It also includes guidelines for reporting bugs.
 
-## Documentation and demos
+## Documentation
 
-The official documentation is hosted on [Read the Docs](https://docs.godotengine.org).
-It is maintained by the Godot community in its own [GitHub repository](https://github.com/godotengine/godot-docs).
-
-The [class reference](https://docs.godotengine.org/en/latest/classes/)
-is also accessible from the Godot editor.
-
-We also maintain official demos in their own [GitHub repository](https://github.com/godotengine/godot-demo-projects)
-as well as a list of [awesome Godot community resources](https://github.com/godotengine/awesome-godot).
-
-There are also a number of other
-[learning resources](https://docs.godotengine.org/en/latest/community/tutorials.html)
-provided by the community, such as text and video tutorials, demos, etc.
-Consult the [community channels](https://godotengine.org/community)
-for more information.
-
-[![Code Triagers Badge](https://www.codetriage.com/godotengine/godot/badges/users.svg)](https://www.codetriage.com/godotengine/godot)
-[![Translate on Weblate](https://hosted.weblate.org/widgets/godot-engine/-/godot/svg-badge.svg)](https://hosted.weblate.org/engage/godot-engine/?utm_source=widget)
-[![TODOs](https://badgen.net/https/api.tickgit.com/badgen/github.com/godotengine/godot)](https://www.tickgit.com/browse?repo=github.com/godotengine/godot)
+Override Engine does not have its own documentation site yet. The ECS
+architecture is described in [`modules/ecs/README.md`](modules/ecs/README.md),
+and the `ECSWorld`, `ECSQuery`, `ECSSystem`, `ECSMainLoop`, `ECSPrefab` and
+`ECSComponentSchema` classes are in the built-in class reference. Much of the
+[Godot documentation](https://docs.godotengine.org) still applies, except where
+the ECS workflow differs from Godot's node-based one.

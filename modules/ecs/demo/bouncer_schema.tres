@@ -1,0 +1,8 @@
+[gd_resource type="ECSComponentSchema" format=3]
+
+[resource]
+component_name = &"Bouncer"
+flags = 2
+fields = {
+&"bounces": 2
+}

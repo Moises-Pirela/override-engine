@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSQuery" inherits="RefCounted" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A cached entity query over an [ECSWorld].
+	</brief_description>
+	<description>
+		Created with [method ECSWorld.query]. A query matches every entity that has all of the included components and none of the excluded ones. Matching is done per archetype with bitset operations and the result is cached: only archetypes created since the last use are tested again, so iterating a query is O(matching entities).
+		For bulk processing from scripts prefer [method get_field_array] / [method set_field_array] over per-entity calls.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="count">
+			<return type="int" />
+			<description>
+				Returns the number of matching entities.
+			</description>
+		</method>
+		<method name="for_each">
+			<return type="void" />
+			<param index="0" name="callable" type="Callable" />
+			<description>
+				Calls [param callable] with the id of every matching entity. The set of entities is captured before iterating, so the callable may add or remove components or destroy entities.
+			</description>
+		</method>
+		<method name="get_entities">
+			<return type="PackedInt64Array" />
+			<description>
+				Returns the ids of every matching entity.
+			</description>
+		</method>
+		<method name="get_exclude" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the names of the excluded components.
+			</description>
+		</method>
+		<method name="get_field_array">
+			<return type="Variant" />
+			<param index="0" name="component" type="Variant" />
+			<param index="1" name="field" type="StringName" />
+			<description>
+				Returns the value of [param field] for every matching entity, in the same order as [method get_entities]. Returns a packed array when the field type allows it ([PackedFloat64Array], [PackedInt64Array], [PackedVector2Array], [PackedVector3Array], [PackedVector4Array], [PackedColorArray], [PackedByteArray] for [bool]) and an [Array] otherwise. This is the fastest way to read many components from a script: values are copied straight out of the archetype columns.
+			</description>
+		</method>
+		<method name="get_include" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the names of the included components.
+			</description>
+		</method>
+		<method name="get_world" qualifiers="const">
+			<return type="ECSWorld" />
+			<description>
+				Returns the world this query belongs to.
+			</description>
+		</method>
+		<method name="matches" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns [code]true[/code] if [param entity] matches the query.
+			</description>
+		</method>
+		<method name="set_field_array">
+			<return type="int" />
+			<param index="0" name="component" type="Variant" />
+			<param index="1" name="field" type="StringName" />
+			<param index="2" name="values" type="Variant" />
+			<description>
+				Writes [param values] (an [Array] or packed array) into [param field] of every matching entity, in the same order as [method get_entities], and marks the components changed. Returns the number of entities written.
+			</description>
+		</method>
+	</methods>
+</class>

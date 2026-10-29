@@ -1,0 +1,24 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="ECS Demo"
+run/main_loop_type="ECSGame"
+config/features=PackedStringArray("4.6")
+
+[ecs]
+
+components/schemas=PackedStringArray("res://bouncer_schema.tres")
+events/custom=PackedStringArray("reset")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"

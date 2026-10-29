@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSSystem" inherits="RefCounted" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Event driven system for an [ECSWorld].
+	</brief_description>
+	<description>
+		An [ECSSystem] declares the events it is interested in and processes them in one place, the way CryEngine entity components declare an event mask and implement [code]ProcessEvent[/code]. Extend it in a script, return the wanted events from [method _get_events] (engine lifecycle events such as [constant ECSWorld.EVENT_ENTITY_CREATE], [constant ECSWorld.EVENT_UPDATE], [constant ECSWorld.EVENT_FIXED_UPDATE], [constant ECSWorld.EVENT_LATE_UPDATE], networking events, or custom events) and handle them in [method _process_event]. Register it with [method ECSWorld.add_system_object].
+		[codeblock]
+		class_name HealthSystem
+		extends ECSSystem
+
+		var dying: ECSQuery
+
+		func _get_events() -&gt; Array:
+		    return [ECSWorld.EVENT_ENTITY_CREATE, ECSWorld.EVENT_FIXED_UPDATE, &amp;&quot;damage&quot;]
+
+		func _get_component_filter() -&gt; Array:
+		    return [&amp;&quot;Health&quot;] # Entity events only for entities with Health.
+
+		func _on_registered() -&gt; void:
+		    dying = get_world().query([&amp;&quot;Health&quot;])
+
+		func _process_event(event: Dictionary) -&gt; void:
+		    match event.event:
+		        ECSWorld.EVENT_ENTITY_CREATE:
+		            print(&quot;new entity with Health: &quot;, event.entity)
+		        ECSWorld.EVENT_FIXED_UPDATE:
+		            for e in dying.get_entities():
+		                if get_world().get_field(e, &amp;&quot;Health&quot;, &amp;&quot;value&quot;) &lt;= 0:
+		                    get_world().defer_destroy_entity(e)
+		        _:
+		            if event.name == &amp;&quot;damage&quot;:
+		                var w := get_world()
+		                w.set_field(event.entity, &amp;&quot;Health&quot;, &amp;&quot;value&quot;, w.get_field(event.entity, &amp;&quot;Health&quot;, &amp;&quot;value&quot;) - event.payload)
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="_get_component_filter" qualifiers="virtual const">
+			<return type="Array" />
+			<description>
+				Override to restrict entity events to entities that have all of the returned components (names or ids); global events are unaffected. Default: no filter.
+			</description>
+		</method>
+		<method name="_get_events" qualifiers="virtual const">
+			<return type="Array" />
+			<description>
+				Override to return the events this system wants (ids from [enum ECSWorld.Event] or names, including custom events registered with [method ECSWorld.register_event]). Called once when the system is registered; at least one event is required.
+			</description>
+		</method>
+		<method name="_on_registered" qualifiers="virtual">
+			<return type="void" />
+			<description>
+				Called after the system was added to a world ([method get_world] is valid).
+			</description>
+		</method>
+		<method name="_on_unregistered" qualifiers="virtual">
+			<return type="void" />
+			<description>
+				Called after the system was removed from its world.
+			</description>
+		</method>
+		<method name="_process_event" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="event" type="Dictionary" />
+			<description>
+				Receives every subscribed event. [param event] has the same keys as the dictionaries passed to [method ECSWorld.subscribe] callables: [code skip-lint]event[/code], [code]name[/code], [code]entity[/code], [code]component[/code], [code]delta[/code], [code]peer[/code], [code]net_id[/code], [code]payload[/code].
+			</description>
+		</method>
+		<method name="get_component_filter" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the result of [method _get_component_filter].
+			</description>
+		</method>
+		<method name="get_events" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the result of [method _get_events].
+			</description>
+		</method>
+		<method name="get_world" qualifiers="const">
+			<return type="ECSWorld" />
+			<description>
+				Returns the world the system is registered in, or [code]null[/code].
+			</description>
+		</method>
+		<method name="is_registered" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] while the system is registered in a world.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="enabled" type="bool" setter="set_enabled" getter="is_enabled" default="true">
+			Disabled systems keep their subscription but receive no events.
+		</member>
+		<member name="order" type="int" setter="set_order" getter="get_order" default="0">
+			Dispatch order relative to other subscriptions of the same event (lower first). Set it before registering the system.
+		</member>
+	</members>
+</class>

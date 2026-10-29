@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSMainLoop" inherits="MainLoop" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A [MainLoop] that runs an [ECSWorld] without a SceneTree.
+	</brief_description>
+	<description>
+		[ECSMainLoop] replaces [SceneTree] for projects built on the ECS: there are no nodes at all. It creates a viewport attached to the main window, a 2D canvas and a 3D scenario, hands them to its [ECSWorld] and calls [method ECSWorld.physics_update] and [method ECSWorld.update] every physics / render frame. Window input is forwarded to [method _input], and closing the window quits the loop.
+		To use it, set [code]application/run/main_loop_type[/code] to [code skip-lint]ECSMainLoop[/code] or to the name of a global class extending it:
+		[codeblock]
+		class_name Game
+		extends ECSMainLoop
+
+		var movers: ECSQuery
+
+		func _initialize():
+		    var world := get_world()
+		    var player := world.create_entity({&amp;&quot;LocalTransform2D&quot;: null, &amp;&quot;Velocity2D&quot;: {&amp;&quot;linear&quot;: Vector2(100, 0)}, &amp;&quot;Camera2D&quot;: null})
+		    world.set_sprite_texture(player, load(&quot;res://icon.svg&quot;))
+		    movers = world.query([&amp;&quot;Velocity2D&quot;])
+
+		func _input(event):
+		    if event.is_action_pressed(&amp;&quot;ui_cancel&quot;):
+		        quit()
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="_input" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="event" type="InputEvent" />
+			<description>
+				Called with every [InputEvent] received by the main window.
+			</description>
+		</method>
+		<method name="get_canvas_rid" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the canvas attached to the main viewport.
+			</description>
+		</method>
+		<method name="get_scenario_rid" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the 3D scenario attached to the main viewport.
+			</description>
+		</method>
+		<method name="get_space_2d_rid" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the active 2D physics space.
+			</description>
+		</method>
+		<method name="get_space_3d_rid" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the active 3D physics space.
+			</description>
+		</method>
+		<method name="get_viewport_rid" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the viewport rendering to the main window.
+			</description>
+		</method>
+		<method name="quit">
+			<return type="void" />
+			<description>
+				Requests the application to exit at the end of the current iteration.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="world" type="ECSWorld" setter="set_world" getter="get_world">
+			The world driven by this main loop. Replacing it hands the viewport, canvas, scenario and physics spaces to the new world.
+		</member>
+	</members>
+</class>

@@ -1,0 +1,11 @@
+[gd_resource type="ECSPrefab" format=3]
+
+[resource]
+components = {
+&"Bouncer": {},
+&"LocalTransform2D": {},
+&"Sprite2D": {
+&"size": Vector2(32, 32)
+},
+&"Velocity2D": {}
+}

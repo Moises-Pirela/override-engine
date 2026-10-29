@@ -1101,6 +1101,12 @@
 			Directory that contains the [code].sln[/code] file. By default, the [code].sln[/code] files is in the root of the project directory, next to the [code]project.godot[/code] and [code].csproj[/code] files.
 			Changing this value allows setting up a multi-project scenario where there are multiple [code].csproj[/code]. Keep in mind that the Godot project is considered one of the C# projects in the workspace and it's root directory should contain the [code]project.godot[/code] and [code].csproj[/code] next to each other.
 		</member>
+		<member name="ecs/components/schemas" type="PackedStringArray" setter="" getter="" default="PackedStringArray()">
+			[ECSComponentSchema] resources registered in every [ECSWorld] at creation and offered by the [ECSPrefab] inspector. Components must be known on every peer for replication, so list shared schemas here rather than registering them from scripts.
+		</member>
+		<member name="ecs/events/custom" type="PackedStringArray" setter="" getter="" default="PackedStringArray()">
+			Custom ECS event types ([code]OnPlayerHeal[/code], ...) registered in every [ECSWorld] on creation, so systems can reference them by name in [method ECSSystem._get_events] and [method ECSWorld.subscribe] and raise them with [method ECSWorld.emit_event]. Managed from the [b]ECS Events[/b] bottom panel in the editor.
+		</member>
 		<member name="editor/export/convert_text_resources_to_binary" type="bool" setter="" getter="" default="true">
 			If [code]true[/code], text resource ([code]tres[/code]) and text scene ([code]tscn[/code]) files are converted to their corresponding binary format on export. This decreases file sizes and speeds up loading slightly.
 			[b]Note:[/b] Because a resource's file extension may change in an exported project, it is heavily recommended to use [method @GDScript.load] or [ResourceLoader] instead of [FileAccess] to load resources dynamically.

@@ -6226,6 +6226,14 @@ bool EditorNode::ensure_main_scene(bool p_from_native) {
 	String main_scene = GLOBAL_GET("application/run/main_scene");
 
 	if (main_scene.is_empty()) {
+		// Projects driven by a custom MainLoop (e.g. ECSMainLoop) have no scenes at all.
+		if (ProjectSettings::get_singleton()->has_setting("application/run/main_loop_type")) {
+			const String main_loop_type = GLOBAL_GET("application/run/main_loop_type");
+			if (!main_loop_type.is_empty() && main_loop_type != "SceneTree") {
+				return true;
+			}
+		}
+
 		current_menu_option = -1;
 		pick_main_scene->set_text(TTR("No main scene has ever been defined. Select one?\nYou can change it later in \"Project Settings\" under the 'application' category."));
 		pick_main_scene->popup_centered();

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSPrefab" inherits="Resource" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A reusable entity definition: components, field values and child prefabs.
+	</brief_description>
+	<description>
+		Prefabs replace packed scenes for the ECS workflow. Create one from the editor (New Resource &gt; ECSPrefab): the inspector lists its components with an [b]Add Component[/b] menu (built-in components and project [ECSComponentSchema]s, plus custom names for components registered from code) and exposes every field of every component as a regular, typed property with undo/redo and revert support. Nest prefabs through [member children] to build hierarchies (turret on a tank, ...).
+		Spawn prefabs with [method ECSWorld.instantiate_prefab], turn live entities into prefabs with [method ECSWorld.create_prefab]. Entities created from a saved prefab carry a replicated [code skip-lint]Prefab[/code] component with the resource path so that clients can re-create local-only components (rendering, physics shapes) for replicated entities.
+		[codeblock]
+		var tank: ECSPrefab = load(&quot;res://tank.tres&quot;)
+		var entity := world.instantiate_prefab(tank)
+		world.replicate(entity, 1, true) # Also replicates the child entities.
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_child">
+			<return type="void" />
+			<param index="0" name="child" type="ECSPrefab" />
+			<description>
+				Appends a child prefab. Children are instantiated as separate entities with a [code skip-lint]Parent[/code] component pointing to the entity created from this prefab.
+			</description>
+		</method>
+		<method name="add_component">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="values" type="Dictionary" default="{}" />
+			<description>
+				Adds a component with the given field values (missing fields keep their default). If the component exists, [param values] are merged into it.
+			</description>
+		</method>
+		<method name="find_sub_prefab" qualifiers="const">
+			<return type="ECSPrefab" />
+			<param index="0" name="index_path" type="String" />
+			<description>
+				Returns the nested child at an index path such as [code]&quot;0/2&quot;[/code] (third child of the first child); an empty path returns this prefab.
+			</description>
+		</method>
+		<method name="get_child" qualifiers="const">
+			<return type="ECSPrefab" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns a child prefab.
+			</description>
+		</method>
+		<method name="get_child_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of child prefabs.
+			</description>
+		</method>
+		<method name="get_component" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the stored field values of a component (only fields that were explicitly set).
+			</description>
+		</method>
+		<method name="get_component_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the component names in declaration order.
+			</description>
+		</method>
+		<method name="get_component_value" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="component" type="StringName" />
+			<param index="1" name="field" type="StringName" />
+			<description>
+				Returns a stored field value, or [code]null[/code].
+			</description>
+		</method>
+		<method name="has_component" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns [code]true[/code] if the prefab has the component.
+			</description>
+		</method>
+		<method name="load_from_path" qualifiers="static">
+			<return type="ECSPrefab" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Loads a prefab from a resource path with an optional child index suffix, e.g. [code]res://tank.tres#0/1[/code] (the format stored in the built-in [code skip-lint]Prefab[/code] component).
+			</description>
+		</method>
+		<method name="remove_component">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Removes a component.
+			</description>
+		</method>
+		<method name="set_component_value">
+			<return type="void" />
+			<param index="0" name="component" type="StringName" />
+			<param index="1" name="field" type="StringName" />
+			<param index="2" name="value" type="Variant" />
+			<description>
+				Sets a field value of an existing component.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="children" type="ECSPrefab[]" setter="set_children" getter="get_children" default="[]">
+			Child prefabs, instantiated as child entities (see [method ECSWorld.instantiate_prefab]).
+		</member>
+		<member name="components" type="Dictionary" setter="set_components" getter="get_components" default="{}">
+			Component name to field values map. In the inspector each component is shown as a property group with one typed editor per field.
+		</member>
+	</members>
+</class>

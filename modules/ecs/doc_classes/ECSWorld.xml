@@ -1,0 +1,834 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSWorld" inherits="RefCounted" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Archetype based entity component system with native multiplayer replication.
+	</brief_description>
+	<description>
+		An [ECSWorld] stores entities as plain integer ids and their components as native data laid out in archetype tables: every unique combination of components gets its own set of tightly packed, structure-of-arrays columns, so iterating a query is a linear walk over memory instead of a tree of nodes. Components flagged [constant COMPONENT_FLAG_SPARSE] are kept in sparse sets instead and can be added or removed without moving the entity. Archetype signatures and queries are bitsets, which keeps matching cheap even with many component types.
+		The world is not a [Node] and does not depend on the SceneTree: built-in systems talk to the [RenderingServer] directly (see the built-in [code skip-lint]LocalTransform2D[/code], [code skip-lint]Sprite2D[/code], [code skip-lint]MeshInstance3D[/code], [code skip-lint]Camera2D[/code], [code skip-lint]Camera3D[/code], [code skip-lint]Velocity2D[/code], [code skip-lint]Velocity3D[/code], [code skip-lint]PhysicsBody2D[/code], [code skip-lint]PhysicsBody3D[/code], [code skip-lint]Parent[/code] and [code skip-lint]Disabled[/code] components) and replication works directly on a [MultiplayerPeer]. Use [ECSMainLoop] to run a project entirely on the ECS, or drive a world manually from [method update] and [method physics_update].
+		Events: systems hook into the engine lifecycle through an event bus inspired by CryEngine's entity events. Subscribe callables with [method subscribe] or register [ECSSystem] objects that declare an event mask ([method ECSSystem._get_events]) and handle everything in [method ECSSystem._process_event]: entity lifecycle ([constant EVENT_ENTITY_CREATE], [constant EVENT_ENTITY_DESTROY], component added/removed), the frame phases ([constant EVENT_UPDATE], [constant EVENT_LATE_UPDATE], [constant EVENT_FIXED_UPDATE], ...), networking events, and your own event types, declared by name in the editor's [b]ECS Events[/b] panel ([member ProjectSettings.ecs/events/custom]) or with [method register_event], and raised with [method emit_event] / [method queue_event].
+		Prefabs: design entities in the editor as [ECSPrefab] resources (components and field values, optionally a hierarchy of child prefabs) and spawn them with [method instantiate_prefab]; declare new component types as [ECSComponentSchema] resources without writing code.
+		Multiplayer: call [method replicate] on entities that must exist on every peer. Components registered with [constant COMPONENT_FLAG_REPLICATED] are delta-synchronized from the server using per-component change ticks; [constant COMPONENT_FLAG_OWNER_AUTHORITY] components flow from the owning client (see [method set_authority]). [method send_command] provides node-less RPCs.
+		[codeblock]
+		var world := ECSWorld.new()
+		world.register_component(&amp;&quot;Health&quot;, {&amp;&quot;value&quot;: TYPE_INT}, ECSWorld.COMPONENT_FLAG_REPLICATED)
+		var e := world.create_entity({&amp;&quot;LocalTransform2D&quot;: null, &amp;&quot;Velocity2D&quot;: {&amp;&quot;linear&quot;: Vector2(50, 0)}, &amp;&quot;Health&quot;: {&amp;&quot;value&quot;: 10}})
+		var movers := world.query([&amp;&quot;LocalTransform2D&quot;, &amp;&quot;Velocity2D&quot;])
+		world.add_system(&amp;&quot;print_positions&quot;, func(delta):
+		    for entity in movers.get_entities():
+		        print(world.get_field(entity, &amp;&quot;LocalTransform2D&quot;, &amp;&quot;transform&quot;))
+		)
+		world.physics_update(1.0 / 60.0)
+		world.update(1.0 / 60.0)
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_component">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<param index="2" name="values" type="Dictionary" default="{}" />
+			<description>
+				Adds [param component] (a name or id) to [param entity]. Fields listed in [param values] are assigned, the others keep their default value. Returns [code]true[/code] on success. Adding a component that the entity already has overwrites the given fields without moving the entity between archetypes.
+				[b]Note:[/b] Adding or removing a table component moves the entity to another archetype; prefer [constant COMPONENT_FLAG_SPARSE] components for data that is toggled very frequently.
+			</description>
+		</method>
+		<method name="add_system">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="callable" type="Callable" />
+			<param index="2" name="stage" type="int" enum="ECSWorld.Stage" default="1" />
+			<param index="3" name="order" type="int" default="0" />
+			<param index="4" name="reads" type="Array" default="[]" />
+			<param index="5" name="writes" type="Array" default="[]" />
+			<description>
+				Registers a script system. [param callable] is invoked with the frame delta (as a [float]) every time [param stage] runs, ordered by [param order] (lower first). [param reads] and [param writes] declare the components the system accesses; script systems always run on the main thread but the declarations keep the schedule consistent with native systems. Returns the system id or [code]-1[/code] on failure.
+			</description>
+		</method>
+		<method name="add_system_object">
+			<return type="int" />
+			<param index="0" name="system" type="ECSSystem" />
+			<description>
+				Registers an [ECSSystem]: its [method ECSSystem._get_events] mask is subscribed and [method ECSSystem._process_event] receives the events. The world keeps a reference to the system. Returns the subscription id.
+			</description>
+		</method>
+		<method name="apply_prefab">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="prefab" type="ECSPrefab" />
+			<param index="2" name="overwrite" type="bool" default="true" />
+			<description>
+				Adds the components of [param prefab] (children excluded) to an existing entity. With [param overwrite] disabled, components the entity already has are left untouched.
+			</description>
+		</method>
+		<method name="clear_entities">
+			<return type="void" />
+			<description>
+				Destroys every entity. Registered components and systems are kept.
+			</description>
+		</method>
+		<method name="clear_systems">
+			<return type="void" />
+			<description>
+				Removes every system, [ECSSystem] object and subscription (built-in systems are re-registered). Scripts that capture the world in lambdas or keep [ECSQuery] objects in systems create reference cycles; [ECSMainLoop] calls this on exit so the world can be freed.
+			</description>
+		</method>
+		<method name="create_entity">
+			<return type="int" />
+			<param index="0" name="components" type="Dictionary" default="{}" />
+			<description>
+				Creates an entity. [param components] maps component names (or ids) to a [Dictionary] of field values (or [code]null[/code] for defaults); the entity is created directly in the matching archetype, which is much cheaper than adding the components one by one. Returns the entity id.
+				[codeblock]
+				var e = world.create_entity({
+				    &amp;&quot;LocalTransform2D&quot;: {&amp;&quot;transform&quot;: Transform2D(0, Vector2(10, 20))},
+				    &amp;&quot;Velocity2D&quot;: {&amp;&quot;linear&quot;: Vector2(100, 0)},
+				    &amp;&quot;Health&quot;: null,
+				})
+				[/codeblock]
+			</description>
+		</method>
+		<method name="create_prefab">
+			<return type="ECSPrefab" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="recursive" type="bool" default="true" />
+			<description>
+				Builds a prefab from a live entity: every component with its current field values (runtime handles such as RIDs, [code skip-lint]NetworkIdentity[/code], [code skip-lint]Prefab[/code], [code skip-lint]Parent[/code] and global transforms are skipped). With [param recursive], entities parented to it become child prefabs. Save the result with [method ResourceSaver.save] to turn a hand-built entity into an asset.
+			</description>
+		</method>
+		<method name="defer_add_component">
+			<return type="void" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<param index="2" name="values" type="Dictionary" default="{}" />
+			<description>
+				Records an [method add_component] in the command buffer. Deferred commands are applied by [method flush_commands], which is called automatically after every system batch. Use this from inside systems.
+			</description>
+		</method>
+		<method name="defer_destroy_entity">
+			<return type="void" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Records a [method destroy_entity] in the command buffer (see [method defer_add_component]).
+			</description>
+		</method>
+		<method name="defer_remove_component">
+			<return type="void" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<description>
+				Records a [method remove_component] in the command buffer (see [method defer_add_component]).
+			</description>
+		</method>
+		<method name="destroy_entity">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Destroys [param entity] and all of its components. Returns [code]false[/code] if the entity was not alive. The entity id becomes invalid (its slot is recycled with a new generation).
+			</description>
+		</method>
+		<method name="emit_event">
+			<return type="void" />
+			<param index="0" name="event" type="Variant" />
+			<param index="1" name="payload" type="Variant" default="null" />
+			<param index="2" name="entity" type="int" default="0" />
+			<description>
+				Delivers an event right away to every matching subscription and event system. [param event] is an id or a name, [param payload] arbitrary user data, [param entity] the optional subject entity (required for subscriptions with a component filter or an entity).
+			</description>
+		</method>
+		<method name="flush_commands">
+			<return type="void" />
+			<description>
+				Applies every deferred command (see [method defer_add_component]).
+			</description>
+		</method>
+		<method name="flush_events">
+			<return type="void" />
+			<description>
+				Delivers queued events (including pending [constant EVENT_ENTITY_CREATE] / [constant EVENT_COMPONENT_ADDED] notifications). Queued entity events whose entity was destroyed in the meantime are dropped.
+			</description>
+		</method>
+		<method name="get_all_profiles" qualifiers="static">
+			<return type="Array" />
+			<description>
+				Returns [method get_profile] of every live world in the process, native ones included.
+			</description>
+		</method>
+		<method name="get_archetype_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of archetypes (unique component combinations) created so far.
+			</description>
+		</method>
+		<method name="get_archetype_info" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns one [Dictionary] per archetype with its [code]id[/code], [code]components[/code] (names), [code]entities[/code] and [code]capacity[/code]. Useful to diagnose archetype fragmentation.
+			</description>
+		</method>
+		<method name="get_authority" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns the peer id that has authority over a replicated entity, or [code]0[/code] if the entity is not replicated.
+			</description>
+		</method>
+		<method name="get_canvas" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the canvas used by the built-in 2D rendering systems.
+			</description>
+		</method>
+		<method name="get_change_tick" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<description>
+				Returns the world tick at which the component was last modified through a mutable accessor ([method set_component], [method set_field], [method ECSQuery.set_field_array] or native systems).
+			</description>
+		</method>
+		<method name="get_children" qualifiers="const">
+			<return type="PackedInt64Array" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns the entities whose [code skip-lint]Parent[/code] component points to [param entity].
+			</description>
+		</method>
+		<method name="get_component" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<description>
+				Returns a [Dictionary] with every field of the component, or an empty dictionary if the entity doesn't have it. This is a copy; use [method set_component] or [method set_field] to write.
+			</description>
+		</method>
+		<method name="get_component_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of registered component types (built-in ones included).
+			</description>
+		</method>
+		<method name="get_component_id" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the id of the component named [param name], or [code]-1[/code].
+			</description>
+		</method>
+		<method name="get_component_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="component" type="Variant" />
+			<description>
+				Returns the description of a component type: [code]id[/code], [code skip-lint]name[/code], [code]size[/code] (bytes per instance), [code]flags[/code], [code]sparse[/code], [code]replicated[/code] and [code]fields[/code] (a name to [enum Variant.Type] map).
+			</description>
+		</method>
+		<method name="get_component_name" qualifiers="const">
+			<return type="StringName" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the name of the component with the given id.
+			</description>
+		</method>
+		<method name="get_component_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the names of every registered component type.
+			</description>
+		</method>
+		<method name="get_entity_by_network_id" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="net_id" type="int" />
+			<description>
+				Returns the local entity that corresponds to a network id, or [code]0[/code].
+			</description>
+		</method>
+		<method name="get_entity_components" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns the names of the components attached to [param entity] (table and sparse).
+			</description>
+		</method>
+		<method name="get_entity_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of live entities.
+			</description>
+		</method>
+		<method name="get_event_id" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the id of an event, or [code]-1[/code].
+			</description>
+		</method>
+		<method name="get_event_name" qualifiers="const">
+			<return type="StringName" />
+			<param index="0" name="event" type="int" />
+			<description>
+				Returns the name of an event id.
+			</description>
+		</method>
+		<method name="get_event_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the names of every event known to this world: the built-in lifecycle events, the project's custom events ([member ProjectSettings.ecs/events/custom], managed from the ECS Events panel) and events registered with [method register_event].
+			</description>
+		</method>
+		<method name="get_field" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<param index="2" name="field" type="StringName" />
+			<description>
+				Returns the value of a single component field, or [code]null[/code] if the entity does not have the component.
+			</description>
+		</method>
+		<method name="get_memory_usage" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the bytes allocated by the world for entity storage: archetype tables (columns, change ticks, entity lists), sparse component storages and entity records.
+			</description>
+		</method>
+		<method name="get_network_id" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns the network id of a replicated entity ([code]0[/code] until the server assigns one).
+			</description>
+		</method>
+		<method name="get_network_stats" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns replication statistics: [code]packets_sent[/code], [code]packets_received[/code], [code]bytes_sent[/code], [code]bytes_received[/code] and [code]last_sync_updates[/code] (component updates sent by the last sync).
+			</description>
+		</method>
+		<method name="get_peers" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+				Returns the ids of the connected peers known to the replicator.
+			</description>
+		</method>
+		<method name="get_profile" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns a profiling snapshot: [code skip-lint]name[/code], [code]entities[/code], [code]archetypes[/code], [code]components[/code], [code]tick[/code], [code]update_us[/code] / [code]physics_us[/code] (duration of the last [method update] / [method physics_update]), [code]events_per_frame[/code], [code]memory[/code] ([code]total[/code], [code]archetypes[/code], [code]sparse[/code], [code]entities[/code]), [code]system_count[/code], [code]active_systems[/code], [code]subscription_count[/code], [code]systems[/code] (every system and event subscription in the order they run, each with [code skip-lint]name[/code], [code]stage[/code], [code]batch[/code], [code]parallel[/code], [code]type[/code], [code]enabled[/code], [code]order[/code], [code]events[/code] and timings [code]last_us[/code], [code]avg_us[/code], [code]max_us[/code], [code]runs[/code]) and [code]archetype_list[/code]. The same data feeds the editor's ECS Profiler (bottom panel at edit time, debugger tab while the game runs).
+			</description>
+		</method>
+		<method name="get_scenario" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the scenario used by the built-in 3D rendering systems.
+			</description>
+		</method>
+		<method name="get_space_2d" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the 2D physics space used by the built-in [code skip-lint]PhysicsBody2D[/code] system.
+			</description>
+		</method>
+		<method name="get_space_3d" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the 3D physics space used by the built-in [code skip-lint]PhysicsBody3D[/code] system.
+			</description>
+		</method>
+		<method name="get_system_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the names of every registered system (built-in systems are prefixed with [code]builtin_[/code]).
+			</description>
+		</method>
+		<method name="get_system_objects" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the registered [ECSSystem] objects.
+			</description>
+		</method>
+		<method name="get_tick" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the current world tick. The tick is incremented after every [method update] and [method physics_update].
+			</description>
+		</method>
+		<method name="get_unique_id" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns this peer's id ([code]1[/code] when there is no peer or when acting as the server).
+			</description>
+		</method>
+		<method name="get_viewport" qualifiers="const">
+			<return type="RID" />
+			<description>
+				Returns the viewport used by the built-in camera systems.
+			</description>
+		</method>
+		<method name="has_authority" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns [code]true[/code] if this peer has authority over [param entity]. Entities that are not replicated belong to the server.
+			</description>
+		</method>
+		<method name="has_component" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<description>
+				Returns [code]true[/code] if [param entity] has the component.
+			</description>
+		</method>
+		<method name="instantiate_prefab">
+			<return type="int" />
+			<param index="0" name="prefab" type="ECSPrefab" />
+			<param index="1" name="parent" type="int" default="0" />
+			<description>
+				Creates an entity from [param prefab] (and one entity per child prefab, linked with [code skip-lint]Parent[/code] components). Components that are not registered in this world are skipped with a warning. When the prefab is a saved resource, every created entity gets a [code skip-lint]Prefab[/code] component holding its path ([code]res://tank.tres[/code], [code]res://tank.tres#0[/code] for the first child, ...); since that component is replicated, clients re-create the prefab's local-only components (sprites, meshes, shapes) when the entity is spawned. Returns the root entity.
+			</description>
+		</method>
+		<method name="is_alive" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<description>
+				Returns [code]true[/code] if [param entity] refers to a live entity (the generation is checked, so ids of destroyed entities are reported dead even if the slot was reused).
+			</description>
+		</method>
+		<method name="is_network_connected" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if a peer is set and connected.
+			</description>
+		</method>
+		<method name="is_server" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if there is no peer or the peer is the server.
+			</description>
+		</method>
+		<method name="is_system_enabled" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns [code]true[/code] if the named system exists and is enabled.
+			</description>
+		</method>
+		<method name="physics_update">
+			<return type="void" />
+			<param index="0" name="delta" type="float" />
+			<description>
+				Polls the network, runs the fixed stages ([constant STAGE_PRE_PHYSICS], [constant STAGE_PHYSICS], [constant STAGE_POST_PHYSICS], [constant STAGE_NETWORK]), replicates changed components and advances the tick. [ECSMainLoop] calls this every physics frame.
+			</description>
+		</method>
+		<method name="query">
+			<return type="ECSQuery" />
+			<param index="0" name="include" type="Array" />
+			<param index="1" name="exclude" type="Array" default="[]" />
+			<description>
+				Creates a cached query matching entities that have every component in [param include] and none of [param exclude] (names or ids). Queries match whole archetypes with two bitset operations and only re-evaluate archetypes created after their last use, so keep them around instead of recreating them every frame.
+			</description>
+		</method>
+		<method name="queue_event">
+			<return type="void" />
+			<param index="0" name="event" type="Variant" />
+			<param index="1" name="payload" type="Variant" default="null" />
+			<param index="2" name="entity" type="int" default="0" />
+			<description>
+				Like [method emit_event] but the event is stored and delivered by the next [method flush_events], which runs automatically after every system batch and stage. Safe to call from any thread.
+			</description>
+		</method>
+		<method name="register_command">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="callable" type="Callable" />
+			<description>
+				Registers a handler for the network command [param name]. [param callable] receives [code](sender_id: int, args: Array)[/code]. Commands are lightweight RPCs that do not need nodes; see [method send_command].
+			</description>
+		</method>
+		<method name="register_component">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="fields" type="Dictionary" />
+			<param index="2" name="flags" type="int" default="0" />
+			<description>
+				Registers a component type. [param fields] maps field names to a [enum Variant.Type] (or the string [code]&quot;entity&quot;[/code] / [constant FIELD_TYPE_ENTITY] for entity references, which are remapped when replicated). Supported field types are [bool], [int], [float], every math type, [Color], [RID], [String], [StringName] and [constant @GlobalScope.TYPE_NIL] for an arbitrary [Variant]. Fields are stored natively (not as [Variant]s) in contiguous archetype columns. [param flags] is a combination of [enum ComponentFlags]. Returns the component id, or [code]-1[/code] on error.
+				[codeblock]
+				world.register_component(&amp;&quot;Health&quot;, {&amp;&quot;value&quot;: TYPE_INT, &amp;&quot;max&quot;: TYPE_INT}, ECSWorld.COMPONENT_FLAG_REPLICATED)
+				world.register_component(&amp;&quot;Selected&quot;, {}, ECSWorld.COMPONENT_FLAG_SPARSE)
+				[/codeblock]
+				[b]Note:[/b] Components must be registered before connecting a multiplayer peer and with the same definition on every peer; mismatching definitions are detected and ignored.
+			</description>
+		</method>
+		<method name="register_event">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Registers a user event and returns its id (the existing id if the name is already registered). Built-in events can also be addressed by name ([code skip-lint]update[/code], [code]fixed_update[/code], [code]entity_create[/code], ...).
+			</description>
+		</method>
+		<method name="register_schema">
+			<return type="int" />
+			<param index="0" name="schema" type="ECSComponentSchema" />
+			<description>
+				Registers the component described by [param schema] in this world (see [method register_component]). Schemas listed in [member ProjectSettings.ecs/components/schemas] are registered automatically. Returns the component id.
+			</description>
+		</method>
+		<method name="release_resource">
+			<return type="void" />
+			<param index="0" name="resource" type="Resource" />
+			<description>
+				Drops the reference that [method set_sprite_texture], [method set_mesh], [method set_shape_2d] or [method set_shape_3d] kept on [param resource]. Components only store RIDs, so the world keeps the resources handed to those helpers alive until they are released or the world is freed.
+			</description>
+		</method>
+		<method name="remove_component">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<description>
+				Removes the component from [param entity]. Returns [code]false[/code] if it was not present.
+			</description>
+		</method>
+		<method name="remove_system">
+			<return type="bool" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Removes the named system.
+			</description>
+		</method>
+		<method name="remove_system_object">
+			<return type="bool" />
+			<param index="0" name="system" type="ECSSystem" />
+			<description>
+				Unregisters an [ECSSystem] added with [method add_system_object].
+			</description>
+		</method>
+		<method name="replicate">
+			<return type="void" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="authority" type="int" default="1" />
+			<param index="2" name="recursive" type="bool" default="false" />
+			<description>
+				Marks [param entity] as replicated by adding a [code skip-lint]NetworkIdentity[/code] component. On the server a network id is assigned at the next sync and the entity is spawned on every client with all of its replicated components. [param authority] is the peer allowed to send [constant COMPONENT_FLAG_OWNER_AUTHORITY] components for this entity. With [param recursive], entities parented to it (e.g. the children of an instantiated prefab) are replicated too.
+			</description>
+		</method>
+		<method name="run_stage">
+			<return type="void" />
+			<param index="0" name="stage" type="int" enum="ECSWorld.Stage" />
+			<param index="1" name="delta" type="float" />
+			<description>
+				Runs a single stage. Prefer [method update] and [method physics_update].
+			</description>
+		</method>
+		<method name="send_command">
+			<return type="void" />
+			<param index="0" name="peer" type="int" />
+			<param index="1" name="name" type="StringName" />
+			<param index="2" name="args" type="Array" default="[]" />
+			<param index="3" name="reliable" type="bool" default="true" />
+			<description>
+				Sends the command [param name] with [param args] to [param peer] ([code]0[/code] broadcasts, [code]1[/code] targets the server). The receiving peer dispatches it to the handler registered with [method register_command] or emits [signal command_received].
+			</description>
+		</method>
+		<method name="set_authority">
+			<return type="void" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="peer" type="int" />
+			<description>
+				Server only: gives [param peer] authority over [param entity] and broadcasts the change.
+			</description>
+		</method>
+		<method name="set_canvas">
+			<return type="void" />
+			<param index="0" name="canvas" type="RID" />
+			<description>
+				Sets the canvas used by the built-in [code skip-lint]Sprite2D[/code] / [code skip-lint]Camera2D[/code] systems. [ECSMainLoop] sets it automatically; when embedding a world in a SceneTree pass [code]get_viewport().find_world_2d().canvas[/code].
+			</description>
+		</method>
+		<method name="set_component">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<param index="2" name="values" type="Dictionary" />
+			<description>
+				Assigns the given fields of an existing component and marks it changed. Returns [code]false[/code] if the entity does not have the component.
+			</description>
+		</method>
+		<method name="set_field">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="component" type="Variant" />
+			<param index="2" name="field" type="StringName" />
+			<param index="3" name="value" type="Variant" />
+			<description>
+				Assigns a single field of an existing component and marks it changed.
+			</description>
+		</method>
+		<method name="set_mesh">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="mesh" type="Mesh" />
+			<description>
+				Convenience: sets the [code skip-lint]mesh[/code] field of the entity's [code skip-lint]MeshInstance3D[/code] component (adding the component if needed) and keeps the mesh alive (see [method release_resource]).
+			</description>
+		</method>
+		<method name="set_scenario">
+			<return type="void" />
+			<param index="0" name="scenario" type="RID" />
+			<description>
+				Sets the scenario used by the built-in [code skip-lint]MeshInstance3D[/code] system. See [method set_canvas].
+			</description>
+		</method>
+		<method name="set_shape_2d">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="shape" type="Shape2D" />
+			<description>
+				Convenience: sets the [code skip-lint]shape[/code] field of the entity's [code skip-lint]PhysicsBody2D[/code] component (adding the component if needed) and keeps the shape resource alive (see [method release_resource]).
+			</description>
+		</method>
+		<method name="set_shape_3d">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="shape" type="Shape3D" />
+			<description>
+				Convenience: sets the [code skip-lint]shape[/code] field of the entity's [code skip-lint]PhysicsBody3D[/code] component (adding the component if needed) and keeps the shape resource alive (see [method release_resource]).
+			</description>
+		</method>
+		<method name="set_space_2d">
+			<return type="void" />
+			<param index="0" name="space" type="RID" />
+			<description>
+				Sets the 2D physics space. Entities with a [code skip-lint]PhysicsBody2D[/code] and a [code skip-lint]LocalTransform2D[/code] get a body in this space; rigid bodies write their transform and velocities back into the entity every physics tick, static and kinematic bodies follow the entity transform. [ECSMainLoop] creates a space automatically.
+			</description>
+		</method>
+		<method name="set_space_3d">
+			<return type="void" />
+			<param index="0" name="space" type="RID" />
+			<description>
+				Sets the 3D physics space. See [method set_space_2d].
+			</description>
+		</method>
+		<method name="set_sprite_texture">
+			<return type="bool" />
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="texture" type="Texture2D" />
+			<description>
+				Convenience: sets the [code skip-lint]texture[/code] and [code]size[/code] fields of the entity's [code skip-lint]Sprite2D[/code] component (adding the component if needed) and keeps the texture alive (see [method release_resource]).
+			</description>
+		</method>
+		<method name="set_subscription_enabled">
+			<return type="void" />
+			<param index="0" name="subscription" type="int" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				Enables or disables a subscription without removing it.
+			</description>
+		</method>
+		<method name="set_system_enabled">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				Enables or disables the named system without removing it.
+			</description>
+		</method>
+		<method name="set_viewport">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Sets the viewport used by the built-in camera systems. See [method set_canvas].
+			</description>
+		</method>
+		<method name="subscribe">
+			<return type="int" />
+			<param index="0" name="events" type="Variant" />
+			<param index="1" name="callable" type="Callable" />
+			<param index="2" name="filter" type="Array" default="[]" />
+			<param index="3" name="entity" type="int" default="0" />
+			<param index="4" name="order" type="int" default="0" />
+			<description>
+				Subscribes [param callable] to one event or an [Array] of events (ids from [enum Event] or names). The callable receives a [Dictionary] with [code]event[/code] (id), [code skip-lint]name[/code], [code skip-lint]entity[/code], [code]component[/code], [code]delta[/code], [code]peer[/code], [code]net_id[/code] and [code]payload[/code]. Entity events are only delivered for entities that have every component in [param filter] (checked when the event is delivered), and only for [param entity] when it is not [code]0[/code]; global events (update phases, peers, custom events without a subject entity) are always delivered. Subscriptions run in ascending [param order]. Returns a subscription id.
+				[codeblock]
+				# OnEntityCreate for every entity that has a Health component.
+				world.subscribe(ECSWorld.EVENT_ENTITY_CREATE, func(e): print(&quot;spawned &quot;, e.entity), [&amp;&quot;Health&quot;])
+				# Update / FixedUpdate / LateUpdate.
+				world.subscribe([ECSWorld.EVENT_UPDATE, ECSWorld.EVENT_LATE_UPDATE], _on_frame)
+				world.subscribe(&amp;&quot;fixed_update&quot;, _on_tick)
+				[/codeblock]
+			</description>
+		</method>
+		<method name="unregister_command">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Removes the handler registered with [method register_command].
+			</description>
+		</method>
+		<method name="unsubscribe">
+			<return type="bool" />
+			<param index="0" name="subscription" type="int" />
+			<description>
+				Removes a subscription created with [method subscribe].
+			</description>
+		</method>
+		<method name="update">
+			<return type="void" />
+			<param index="0" name="delta" type="float" />
+			<description>
+				Runs the frame stages ([constant STAGE_PRE_UPDATE], [constant STAGE_UPDATE], [constant STAGE_POST_UPDATE], [constant STAGE_RENDER]) and advances the tick. [ECSMainLoop] calls this every frame.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="multiplayer_peer" type="MultiplayerPeer" setter="set_multiplayer_peer" getter="get_multiplayer_peer">
+			The peer used for replication. The world talks to the peer directly (no [MultiplayerAPI] or SceneTree involved). Set it before peers connect and after every component has been registered.
+		</member>
+		<member name="name" type="StringName" setter="set_name" getter="get_name" default="&amp;&quot;&quot;">
+			Display name of the world in the ECS Profiler. When empty, [code]ECSWorld &lt;n&gt;[/code] is shown; [ECSMainLoop] names its world [code]Main[/code].
+		</member>
+		<member name="sync_interval" type="int" setter="set_sync_interval" getter="get_sync_interval" default="1">
+			How often (in physics ticks) changed components are replicated. [code]1[/code] syncs every physics tick.
+		</member>
+		<member name="viewport_size" type="Vector2" setter="set_viewport_size" getter="get_viewport_size" default="Vector2(0, 0)">
+			Viewport size used by the built-in [code skip-lint]Camera2D[/code] system to center the view. [ECSMainLoop] keeps it in sync with the window.
+		</member>
+	</members>
+	<signals>
+		<signal name="authority_changed">
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="peer" type="int" />
+			<description>
+				Emitted when the authority of a replicated entity changes.
+			</description>
+		</signal>
+		<signal name="command_received">
+			<param index="0" name="sender" type="int" />
+			<param index="1" name="name" type="StringName" />
+			<param index="2" name="args" type="Array" />
+			<description>
+				Emitted when a command arrives and no handler was registered with [method register_command].
+			</description>
+		</signal>
+		<signal name="entity_despawned">
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="net_id" type="int" />
+			<description>
+				Emitted right before a replicated entity is destroyed because the server despawned it (clients) or when a replicated entity is destroyed (server).
+			</description>
+		</signal>
+		<signal name="entity_spawned">
+			<param index="0" name="entity" type="int" />
+			<param index="1" name="net_id" type="int" />
+			<description>
+				Emitted when a replicated entity is created from the network (clients) or receives its network id (server).
+			</description>
+		</signal>
+		<signal name="peer_connected">
+			<param index="0" name="id" type="int" />
+			<description>
+				Emitted when a peer connects.
+			</description>
+		</signal>
+		<signal name="peer_disconnected">
+			<param index="0" name="id" type="int" />
+			<description>
+				Emitted when a peer disconnects. Entities owned by the peer revert to server authority.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="STAGE_PRE_UPDATE" value="0" enum="Stage">
+			First frame stage, runs from [method update].
+		</constant>
+		<constant name="STAGE_UPDATE" value="1" enum="Stage">
+			Main frame stage (default for script systems).
+		</constant>
+		<constant name="STAGE_POST_UPDATE" value="2" enum="Stage">
+			Frame stage running after [constant STAGE_UPDATE].
+		</constant>
+		<constant name="STAGE_RENDER" value="3" enum="Stage">
+			Last frame stage. Built-in systems propagate transforms (order -100) and push sprites, meshes and cameras to the [RenderingServer] (order 0 and 10).
+		</constant>
+		<constant name="STAGE_PRE_PHYSICS" value="4" enum="Stage">
+			First fixed stage, runs from [method physics_update].
+		</constant>
+		<constant name="STAGE_PHYSICS" value="5" enum="Stage">
+			Fixed stage where the built-in movement systems integrate velocities.
+		</constant>
+		<constant name="STAGE_POST_PHYSICS" value="6" enum="Stage">
+			Fixed stage running after [constant STAGE_PHYSICS].
+		</constant>
+		<constant name="STAGE_NETWORK" value="7" enum="Stage">
+			Last fixed stage; replication happens right after it.
+		</constant>
+		<constant name="EVENT_ENTITY_CREATE" value="0" enum="Event">
+			OnEntityCreate: an entity was created. Delivered at the next event flush, once the entity has been fully initialized (components and field values set). [code skip-lint]entity[/code] is set.
+		</constant>
+		<constant name="EVENT_ENTITY_DESTROY" value="1" enum="Event">
+			An entity is about to be destroyed. Delivered immediately, while its components can still be read.
+		</constant>
+		<constant name="EVENT_COMPONENT_ADDED" value="2" enum="Event">
+			A component was added to an entity (deferred like [constant EVENT_ENTITY_CREATE]). [code]component[/code] holds the component name.
+		</constant>
+		<constant name="EVENT_COMPONENT_REMOVED" value="3" enum="Event">
+			A component is about to be removed (immediate).
+		</constant>
+		<constant name="EVENT_PRE_UPDATE" value="4" enum="Event">
+			Frame event emitted after the [constant STAGE_PRE_UPDATE] systems. [code]delta[/code] is the frame time.
+		</constant>
+		<constant name="EVENT_UPDATE" value="5" enum="Event">
+			Update: frame event emitted after the [constant STAGE_UPDATE] systems.
+		</constant>
+		<constant name="EVENT_LATE_UPDATE" value="6" enum="Event">
+			LateUpdate: frame event emitted after the [constant STAGE_POST_UPDATE] systems, before rendering.
+		</constant>
+		<constant name="EVENT_RENDER" value="7" enum="Event">
+			Frame event emitted after the [constant STAGE_RENDER] systems pushed state to the servers.
+		</constant>
+		<constant name="EVENT_PRE_FIXED_UPDATE" value="8" enum="Event">
+			Fixed tick event emitted after the [constant STAGE_PRE_PHYSICS] systems.
+		</constant>
+		<constant name="EVENT_FIXED_UPDATE" value="9" enum="Event">
+			FixedUpdate: fixed tick event emitted after the [constant STAGE_PHYSICS] systems. [code]delta[/code] is the physics step.
+		</constant>
+		<constant name="EVENT_LATE_FIXED_UPDATE" value="10" enum="Event">
+			Fixed tick event emitted after the [constant STAGE_POST_PHYSICS] systems, before replication.
+		</constant>
+		<constant name="EVENT_PEER_CONNECTED" value="11" enum="Event">
+			A peer connected ([code]peer[/code]).
+		</constant>
+		<constant name="EVENT_PEER_DISCONNECTED" value="12" enum="Event">
+			A peer disconnected ([code]peer[/code]).
+		</constant>
+		<constant name="EVENT_ENTITY_SPAWNED" value="13" enum="Event">
+			A replicated entity received its network id (server) or was created from the network (clients). [code skip-lint]entity[/code], [code]net_id[/code] and [code]peer[/code] (authority) are set.
+		</constant>
+		<constant name="EVENT_ENTITY_DESPAWNED" value="14" enum="Event">
+			A replicated entity is about to be destroyed because of the network (or was destroyed on the server).
+		</constant>
+		<constant name="EVENT_AUTHORITY_CHANGED" value="15" enum="Event">
+			The authority of a replicated entity changed ([code]peer[/code] is the new authority).
+		</constant>
+		<constant name="COMPONENT_FLAG_NONE" value="0" enum="ComponentFlags" is_bitfield="true">
+			No flags.
+		</constant>
+		<constant name="COMPONENT_FLAG_SPARSE" value="1" enum="ComponentFlags" is_bitfield="true">
+			Store the component in a sparse set instead of archetype tables. Adding or removing it never moves the entity, which makes it ideal for tags and state that is toggled frequently.
+		</constant>
+		<constant name="COMPONENT_FLAG_REPLICATED" value="2" enum="ComponentFlags" is_bitfield="true">
+			Replicate the component from the server to every client whenever it changes.
+		</constant>
+		<constant name="COMPONENT_FLAG_OWNER_AUTHORITY" value="4" enum="ComponentFlags" is_bitfield="true">
+			Replicate the component from the peer that has authority over the entity to the server, which relays it to the other peers (never back to the owner). Implies [constant COMPONENT_FLAG_REPLICATED].
+		</constant>
+		<constant name="COMPONENT_FLAG_UNRELIABLE" value="8" enum="ComponentFlags" is_bitfield="true">
+			Send updates of this component with unreliable ordered transfer (lower latency, may drop).
+		</constant>
+		<constant name="FIELD_TYPE_ENTITY" value="1000">
+			Field type for entity references in [method register_component]. Stored as an entity id and remapped through network ids when replicated.
+		</constant>
+		<constant name="NULL_ENTITY" value="0">
+			The null entity id.
+		</constant>
+	</constants>
+</class>

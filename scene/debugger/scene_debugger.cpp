@@ -503,7 +503,10 @@ Error SceneDebugger::_msg_rq_screenshot(const Array &p_args) {
 HashMap<String, SceneDebugger::ParseMessageFunc> SceneDebugger::message_handlers;
 
 Error SceneDebugger::parse_message(void *p_user, const String &p_msg, const Array &p_args, bool &r_captured) {
-	ERR_FAIL_NULL_V(SceneTree::get_singleton(), ERR_UNCONFIGURED);
+	if (!SceneTree::get_singleton()) {
+		// Custom MainLoops (e.g. ECSMainLoop) have no scene tree to inspect.
+		return ERR_UNAVAILABLE;
+	}
 	ERR_FAIL_NULL_V(LiveEditor::get_singleton(), ERR_UNCONFIGURED);
 	ERR_FAIL_NULL_V(RuntimeNodeSelect::get_singleton(), ERR_UNCONFIGURED);
 

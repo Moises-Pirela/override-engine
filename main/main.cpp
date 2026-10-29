@@ -208,6 +208,7 @@ static bool single_window = false;
 static bool editor = false;
 static bool project_manager = false;
 static bool cmdline_tool = false;
+static bool custom_main_loop = false; // application/run/main_loop_type is not the SceneTree.
 static String locale;
 static String log_file;
 static bool show_help = false;
@@ -2242,7 +2243,14 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		OS::get_singleton()->add_logger(memnew(RotatedFileLogger(base_path, max_files)));
 	}
 
-	if (main_args.is_empty() && String(GLOBAL_GET("application/run/main_scene")) == "") {
+	// Projects driven by a custom MainLoop (e.g. ECSMainLoop, which replaces the
+	// SceneTree with an entity component system) don't need a main scene.
+	if (ProjectSettings::get_singleton()->has_setting("application/run/main_loop_type")) {
+		const String configured_main_loop = GLOBAL_GET("application/run/main_loop_type");
+		custom_main_loop = !configured_main_loop.is_empty() && configured_main_loop != "SceneTree";
+	}
+
+	if (main_args.is_empty() && !custom_main_loop && String(GLOBAL_GET("application/run/main_scene")) == "") {
 #ifdef TOOLS_ENABLED
 		if (!editor && !project_manager) {
 #endif
@@ -4192,7 +4200,7 @@ int Main::start() {
 	}
 
 #ifdef TOOLS_ENABLED
-	if (!editor && !project_manager && !cmdline_tool && script.is_empty() && game_path.is_empty()) {
+	if (!editor && !project_manager && !cmdline_tool && script.is_empty() && game_path.is_empty() && main_loop_type.is_empty() && !custom_main_loop) {
 		// If we end up here, it means we didn't manage to detect what we want to run.
 		// Let's throw an error gently. The code leading to this is pretty brittle so
 		// this might end up triggered by valid usage, in which case we'll have to

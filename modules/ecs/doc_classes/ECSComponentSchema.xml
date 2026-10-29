@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ECSComponentSchema" inherits="Resource" keywords="ecs, entity, component, multiplayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A component type declared as a resource.
+	</brief_description>
+	<description>
+		Describes an ECS component (name, typed fields, flags) without code. Create one from the editor (New Resource &gt; ECSComponentSchema), add fields in the inspector, then list it in [member ProjectSettings.ecs/components/schemas] so every [ECSWorld] registers it on creation and the [ECSPrefab] inspector offers it. Schemas can also be registered at runtime with [method ECSWorld.register_schema].
+		Fields are stored natively in archetype columns exactly like components registered from code with [method ECSWorld.register_component].
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_field">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="type" type="int" />
+			<description>
+				Adds (or retypes) a field. [param type] is a [enum Variant.Type] or [constant ECSWorld.FIELD_TYPE_ENTITY].
+			</description>
+		</method>
+		<method name="get_field_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the field names in declaration order.
+			</description>
+		</method>
+		<method name="get_field_type" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the type of a field, or [code]-1[/code].
+			</description>
+		</method>
+		<method name="get_supported_type_names" qualifiers="static">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the type names understood by [method type_from_name] ([code skip-lint]bool[/code], [code skip-lint]int[/code], [code skip-lint]float[/code], [code skip-lint]String[/code], math types, [code skip-lint]Color[/code], [code skip-lint]Variant[/code], [code]Entity[/code], ...).
+			</description>
+		</method>
+		<method name="has_field" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns [code]true[/code] if the schema declares [param name].
+			</description>
+		</method>
+		<method name="name_from_type" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="type" type="int" />
+			<description>
+				Returns the display name of a field type.
+			</description>
+		</method>
+		<method name="remove_field">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Removes a field.
+			</description>
+		</method>
+		<method name="type_from_name" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="name" type="String" />
+			<description>
+				Returns the field type for a display name (case insensitive), or [code]-1[/code].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="component_name" type="StringName" setter="set_component_name" getter="get_component_name" default="&amp;&quot;&quot;">
+			Name of the component type. Must be unique across built-in components and other schemas.
+		</member>
+		<member name="fields" type="Dictionary" setter="set_fields" getter="get_fields" default="{}">
+			Field name to type map ([enum Variant.Type] integers or [constant ECSWorld.FIELD_TYPE_ENTITY]). Edited with the dedicated inspector control.
+		</member>
+		<member name="flags" type="int" setter="set_flags" getter="get_flags" default="0">
+			Combination of [enum ECSWorld.ComponentFlags]: sparse storage, replication, owner authority, unreliable transfer.
+		</member>
+	</members>
+</class>
